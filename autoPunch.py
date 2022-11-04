@@ -18,6 +18,7 @@ from chinese_calendar import is_holiday
 from auto_punch_notify import Notify
 from auto_punch_mysql import DBHandle
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
 
 # 定义用户数据
@@ -157,9 +158,11 @@ async def handle_msg(websocket, command_login, punch_cfg, notify_cfg):
                                             end_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(item["end"]["time"]["$date"] / 1000))
                                             logger.info(f'签到结束：{item["end"]["location"]["office"]}-{end_time}-{item["end"]["result"]}->{time.strftime("%Y-%m-%d %H:%M:%S",time.localtime())}')
                             try:
-                                Notify().send_by_phone(**{"data": {'result': '成功', 'time': time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),'addr': address, 'phone': phone, 'username': '用户'}})
+                                data_config = {"data": {'result': '成功', 'time': time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()), 'addr': '不显示', 'receive_email': json.loads(notify_cfg)["email"], 'title': '云签到通知'}};
+                                Notify().send_by_email(**data_config)
+                                # Notify().send_by_phone(**{"data": {'result': '成功', 'time': time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),'addr': address, 'phone': phone, 'username': '用户'}})
                             except Exception as e:
-                                logger.info(f'发送短信出错：{e}->{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())}')
+                                logger.info(f'发送提示出错：{e}->{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())}')
                             finally:
                                 await close_connect(websocket)
                                 break
@@ -266,11 +269,42 @@ async def main_task():
     # 调用初始化签到数据
     await init_data()
     # 处理签到任务
+    async_scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
+    # 随机时间处理
+    list_ = random___(len(token))
     for index in range(len(token)):
-        command_login = temp_login % token[index]
-        logger.info(f'正在执行第{index+1}个任务，连接中...->{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())}')
-        async with ws.connect(wss_url) as websocket:
-            await handle_msg(websocket, command_login, punch_config[index], notify_config[index])
+        async_scheduler.add_job(func=task, args=(index,), next_run_time=datetime.datetime.now() + datetime.timedelta(seconds=list_[index]*60))
+    async_scheduler.start()
+
+
+def random___(length):
+    list_ = set()
+    while len(list_) < length:
+        list_.add(random__())
+    list_ = list(list_)
+    random.shuffle(list_)
+    logger.info(f'{list_}->{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())}')
+    return list_
+
+
+def random__():
+    # 按分钟处理
+    a, b, c = random_(10, 29), random_(11, 29), random_(12, 29)
+    while True:
+        if random_() < 20:
+            return a
+        if 20 <= random_() < 40:
+            return b
+        if random_() >= 40:
+            return c
+
+
+async def task(index):
+    # print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
+    command_login = temp_login % token[index]
+    logger.info(f'正在执行第{index + 1}个任务，连接中...->{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())}')
+    async with ws.connect(wss_url) as websocket:
+        await handle_msg(websocket, command_login, punch_config[index], notify_config[index])
 
 
 # 初始化登录信息
@@ -300,8 +334,8 @@ def random_(min_=0, max_=60):
 
 if __name__ == "__main__":
     # asyncio.new_event_loop().run_until_complete(main_task())
-    scheduler.add_job(func=main_task, trigger="cron", day_of_week="0-6", hour=8, minute=random_(min_=0, max_=5), second=random_(), jitter=random_(min_=0, max_=600))
-    scheduler.add_job(func=main_task, trigger="cron", day_of_week="0-6", hour=18, minute=random_(min_=0, max_=5), second=random_(), jitter=random_(min_=0, max_=600))
+    scheduler.add_job(func=main_task, trigger="cron", day_of_week="0-6", hour=8, minute=0, second=0, jitter=0)
+    scheduler.add_job(func=main_task, trigger="cron", day_of_week="0-6", hour=18, minute=0, second=0, jitter=0)
     scheduler.add_listener(listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
     scheduler._logger = logger
     scheduler.start()
