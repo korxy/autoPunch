@@ -18,7 +18,6 @@ from chinese_calendar import is_holiday
 from auto_punch_notify import Notify
 from auto_punch_mysql import DBHandle
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
 
 # 定义用户数据
@@ -50,6 +49,8 @@ console.setLevel(logging.INFO)
 logger.addHandler(console)
 # 配置调度器
 scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
+
+lock = False
 
 
 def shuffle_str(s):
@@ -90,7 +91,7 @@ async def init_data():
     today_end = ((23 - time.localtime().tm_hour) * 60 * 60 * 1000) + ((59 - time.localtime().tm_min) * 60 * 1000) + ((59 - time.localtime().tm_sec) * 1000)
     ts = str(time.time() * 1000 - today_start)[0:9] + "0000"
     te = str(time.time() * 1000 + today_end)[0:9] + "9999"
-    command_attendance_init = r'["{\"msg\":\"method\",\"method\":\"attendanceInit\",\"params\":[{\"$date\":%s},{\"$date\":%s},-480,{\"$date\":%s}],\"id\":\"4\"}"]' % (ts, te, int(time.time() * 1000))
+    command_attendance_init = r'["{\"msg\":\"method\",\"method\":\"attendanceInit\",\"params\":[{\"$date\":%s},{\"$date\":%s},-480,{\"$date\":$s}],\"id\":\"4\"}"]' % (ts, te)
     command_attendances = r'["{\"msg\":\"sub\",\"id\":\"$id\",\"name\":\"attendances\",\"params\":[{\"$date\":%s},{\"$date\":%s}]}"]' % (ts, te)
     command_todoTaskCount = r'["{\"msg\":\"method\",\"method\":\"todoTaskCount\",\"params\":[{\"organization\":\"$organization\"}],\"id\":\"5\"}"]'
 
@@ -128,9 +129,9 @@ async def handle_msg(websocket, command_login, punch_cfg, notify_cfg):
                             logger.info(f'用户号码：{phone}->{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())}')
                             # 测试短信消息
                             # Notify().send_by_phone(**{"data": {'result': '成功', 'time': time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),'addr': address, 'phone': phone, 'username': '用户'}})
-                            # 更新签到请求
+                            # 更新签到请求-写入参数
                             # temp = command_update_punch.replace("$params", attendances_id, 1).replace("$address", address, 1)
-                            # 直接签到请求
+                            # 签到请求-写入参数
                             temp = command_punch.replace("$params", attendances_id, 1).replace("$address", address, 1)
                             logger.info(f'发送签到请求：{temp}->{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())}')
                             await websocket.send(temp)
@@ -158,9 +159,10 @@ async def handle_msg(websocket, command_login, punch_cfg, notify_cfg):
                                             end_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(item["end"]["time"]["$date"] / 1000))
                                             logger.info(f'签到结束：{item["end"]["location"]["office"]}-{end_time}-{item["end"]["result"]}->{time.strftime("%Y-%m-%d %H:%M:%S",time.localtime())}')
                             try:
-                                data_config = {"data": {'result': '成功', 'time': time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()), 'addr': '不显示', 'receive_email': json.loads(notify_cfg)["email"], 'title': '云签到通知'}};
-                                Notify().send_by_email(**data_config)
-                                # Notify().send_by_phone(**{"data": {'result': '成功', 'time': time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),'addr': address, 'phone': phone, 'username': '用户'}})
+                                if "email" in json.loads(notify_cfg):
+                                    data_config = {"data": {'result': '成功', 'time': time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()), 'addr': '不显示', 'receive_email': json.loads(notify_cfg)["email"], 'title': '云签到通知'}};
+                                    Notify(logger=logger, time=time).send_by_email(**data_config)
+                                    # Notify().send_by_phone(**{"data": {'result': '成功', 'time': time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),'addr': address, 'phone': phone, 'username': '用户'}})
                             except Exception as e:
                                 logger.info(f'发送提示出错：{e}->{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())}')
                             finally:
@@ -176,13 +178,14 @@ async def handle_msg(websocket, command_login, punch_cfg, notify_cfg):
                             logger.info(f'Token有效期：{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(json.loads(data[0])["result"]["tokenExpires"]["$date"]/1000))}->{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())}')
 
                             # 初始化开始
-                            logger.info(f'发送初始化考勤请求：{command_attendance_init}->{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())}')
-                            await websocket.send(command_attendance_init)
+                            temp_init_data = command_attendance_init.replace("$s", str(int(time.time()*1000)), 1)
+                            logger.info(f'发送初始化考勤请求：{temp_init_data}->{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())}')
+                            await websocket.send(temp_init_data)
+                            # 初始化结束
+
                             temp = command_todoTaskCount.replace("$organization", organization, 1)
                             logger.info(f'发送获取计划数量请求：{temp}->{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())}')
                             await websocket.send(temp)
-                            # 初始化结束
-
                             sub_id = command_attendances.replace("$id", shuffle_str('aAqYdmieuoi7D5uqb'), 1)
                             logger.info(f'发送获取考勤信息请求：{sub_id}->{time.strftime("%Y-%m-%d %H:%M:%S",time.localtime())}')
                             await websocket.send(sub_id)
@@ -254,7 +257,7 @@ async def main_task():
         if is_holiday(datetime.datetime(date[0], date[1], date[2])):
             user_data.out_logger(text="节假日不打卡")
             break
-        if user[5] != 1:
+        if user[5] != 1 or user[9] != 0:
             user_data.out_logger(text="未启用的配置")
             continue
         command_login = temp_login % (user[1], context.call('encrypt', user[2]))
@@ -266,14 +269,19 @@ async def main_task():
             await handle_token(websocket, command_login)
     # 输出Token列表
     user_data.out_logger('Token列表：' + str(token))
-    # 调用初始化签到数据
-    await init_data()
-    # 处理签到任务
+    # 定义异步任务
     async_scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
     # 随机时间处理
     list_ = random___(len(token))
     for index in range(len(token)):
-        async_scheduler.add_job(func=task, args=(index,), next_run_time=datetime.datetime.now() + datetime.timedelta(seconds=list_[index]*60))
+        sign_time = datetime.datetime.now() + datetime.timedelta(seconds=list_[index]*60)
+        logger.info(f'任务ID：task_{index}，时间：{sign_time}->{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())}')
+        async_scheduler.add_job(func=task, args=(index,), next_run_time=sign_time, id="task_"+str(index))
+        data_config = {"data": {'result': '即将开始', 'time': sign_time, 'addr': '不显示','receive_email': json.loads(notify_config[index])["email"], 'title': '云签到通知'}};
+        if "email" not in json.loads(notify_config[index]):
+            continue
+        Notify(logger=logger, time=time).send_by_email(**data_config)
+    scheduler.add_listener(listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
     async_scheduler.start()
 
 
@@ -300,11 +308,23 @@ def random__():
 
 
 async def task(index):
+    global lock
     # print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
-    command_login = temp_login % token[index]
     logger.info(f'正在执行第{index + 1}个任务，连接中...->{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())}')
+    # 锁定任务
+    while lock:
+        logger.info(f'task{index + 1}：waiting...->{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())}')
+        await asyncio.sleep(1)
+    lock = True
+    # 调用初始化签到数据
+    await init_data()
+    # 连接到服务
     async with ws.connect(wss_url) as websocket:
+        # 写入登录令牌
+        command_login = temp_login % token[index]
+        # 处理签到
         await handle_msg(websocket, command_login, punch_config[index], notify_config[index])
+        lock = False
 
 
 # 初始化登录信息
@@ -334,8 +354,8 @@ def random_(min_=0, max_=60):
 
 if __name__ == "__main__":
     # asyncio.new_event_loop().run_until_complete(main_task())
-    scheduler.add_job(func=main_task, trigger="cron", day_of_week="0-6", hour=8, minute=0, second=0, jitter=0)
-    scheduler.add_job(func=main_task, trigger="cron", day_of_week="0-6", hour=18, minute=0, second=0, jitter=0)
+    scheduler.add_job(func=main_task, trigger="cron", day_of_week="0-6", hour=8, minute=0, second=0, jitter=0, id="tA")
+    scheduler.add_job(func=main_task, trigger="cron", day_of_week="0-6", hour=18, minute=0, second=0, jitter=0, id="tB")
     scheduler.add_listener(listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
     scheduler._logger = logger
     scheduler.start()
