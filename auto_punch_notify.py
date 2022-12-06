@@ -24,7 +24,7 @@ class Notify:
             contents = ['打卡状态：%s<br>' % data['result'], '打卡时间：%s<br>' % data['time'], '打卡地址：%s' % data['addr']]
             self.out_logger(contents)
             if data is None or "receive_email" not in data or data['receive_email'] is None:
-                yag.send("752484360@qq.com", data['title'], contents)
+                yag.send("752484360@qq.com", "Test", contents)
             else:
                 yag.send(data['receive_email'], data['title'], contents)
         except Exception:
@@ -56,14 +56,14 @@ class Notify:
             raise
 
     def out_logger(self, text):
-        if self.logging:
+        if self.logging and self.time:
             self.logging.info(f'{text}->{self.time.strftime("%Y-%m-%d %H:%M:%S", self.time.localtime())}')
-        elif self.time:
-            print(f'{text}->{self.time.strftime("%Y-%m-%d %H:%M:%S", self.time.localtime())}')
         else:
-            print(f'{text}')
+            import time
+            print(f'{text}->{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())}')
 
 
 if __name__ == "__main__":
-    Notify().send_by_email(**{"data": {'result': 'Test', 'time': 'Test', 'addr': 'Test', 'receive_email': '752484360@qq.com', 'title': 'Test'}})
-    Notify().send_by_phone(**{"data": {'result': 'Test', 'time': 'Test', 'addr': 'Test', 'phone': 'Test', 'username': 'Test'}})
+    data = {"data": {'result': 'Test', 'time': 'Test', 'addr': 'Test', 'receive_email': '752484360@qq.com', 'title': 'Test'}}
+    Notify().send_by_email(**data)
+    # Notify().send_by_phone(**{"data": {'result': 'Test', 'time': 'Test', 'addr': 'Test', 'phone': 'Test', 'username': 'Test'}})
