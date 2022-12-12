@@ -73,11 +73,19 @@ def js_from_file(file_name):
     return result
 
 
+def is_empty(cs):
+    return cs is None or len(cs) == 0
+
+
 # 配置初始化数据
-async def init_data():
+async def init_data(punch_cfg):
     # 声明全局变量
     global latitude, longitude, wss_url, temp_login, command_connect, command_ping, command_getGeoAddress, command_punch, command_update_punch, command_punch, command_attendance_init, command_attendances, command_todoTaskCount
-    latitude, longitude = '24.342749285961194', '109.42300104879952'
+    punch_cfg = json.loads(punch_cfg)
+    if 'latitude' in punch_cfg and 'longitude' in punch_cfg and not is_empty(punch_cfg['latitude']) and not is_empty(punch_cfg['longitude']):
+        latitude, longitude = punch_cfg['latitude'], punch_cfg['longitude']
+    else:
+        latitude, longitude = '24.342749285961194', '109.42300104879952'
     wss_url = "wss://icloudportal.com/sockjs/853/2ih63_c4/websocket"
     # 配置请求数据
     temp_login = r'["{\"msg\":\"method\",\"method\":\"login\",\"params\":[{\"resume\":\"%s\"}],\"id\":\"1\"}"]'
@@ -317,7 +325,7 @@ async def task(index):
         await asyncio.sleep(1)
     lock = True
     # 调用初始化签到数据
-    await init_data()
+    await init_data(punch_config[index])
     # 连接到服务
     async with ws.connect(wss_url) as websocket:
         # 写入登录令牌
